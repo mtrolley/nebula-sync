@@ -32,7 +32,7 @@ func includeKeys(jsonData map[string]interface{}, keys []string) map[string]inte
 		if value != nil {
 			setNestedValue(result, key, value)
 		} else {
-			log.Warn().Str("key", key).Msg("key not found in config")
+			log.Warn().Str("key", key).Msg("Attempted to include nonexistent config")
 		}
 	}
 
@@ -91,6 +91,12 @@ func removeNestedKey(target map[string]interface{}, keys []string) {
 
 	currentKey := keys[0]
 	remainingKeys := keys[1:]
+
+	_, exists := target[currentKey]
+	if !exists {
+		log.Warn().Str("key", strings.Join(keys, ".")).Msg("Attempted to exclude nonexistent config")
+		return
+	}
 
 	if len(remainingKeys) == 0 {
 		delete(target, currentKey)

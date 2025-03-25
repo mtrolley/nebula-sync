@@ -52,6 +52,39 @@ type RawConfigSettings struct {
 	DebugExclude    []string `envconfig:"SYNC_CONFIG_DEBUG_EXCLUDE"`
 }
 
+func (raw *RawConfigSettings) Validate() error {
+	mex := func(name string, include, exclude []string) error {
+		if include != nil && exclude != nil {
+			return fmt.Errorf("%s: INCLUDE/EXCLUDE must be mutually exclusive", name)
+		}
+		return nil
+	}
+
+	if err := mex("dns", raw.DNSInclude, raw.DNSExclude); err != nil {
+		return err
+	}
+	if err := mex("dhcp", raw.DHCPInclude, raw.DHCPExclude); err != nil {
+		return err
+	}
+	if err := mex("ntp", raw.NTPInclude, raw.NTPExclude); err != nil {
+		return err
+	}
+	if err := mex("resolver", raw.ResolverInclude, raw.ResolverExclude); err != nil {
+		return err
+	}
+	if err := mex("database", raw.DatabaseInclude, raw.DatabaseExclude); err != nil {
+		return err
+	}
+	if err := mex("misc", raw.MiscInclude, raw.MiscExclude); err != nil {
+		return err
+	}
+	if err := mex("debug", raw.DebugInclude, raw.DebugExclude); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (raw *RawConfigSettings) Parse() *ConfigSettings {
 	return &ConfigSettings{
 		DNS:       NewConfigSetting(raw.DNS, raw.DNSInclude, raw.DNSExclude),
@@ -117,13 +150,17 @@ func (c *Config) Load() error {
 }
 
 func (sync *Sync) loadConfigSettings() error {
-	cs := RawConfigSettings{}
+	raw := RawConfigSettings{}
 
-	if err := envconfig.Process("", &cs); err != nil {
+	if err := envconfig.Process("", &raw); err != nil {
 		return fmt.Errorf("config settings env vars: %w", err)
 	}
 
-	sync.ConfigSettings = cs.Parse()
+	if err := raw.Validate(); err != nil {
+		return err
+	}
+
+	sync.ConfigSettings = raw.Parse()
 	return nil
 }
 

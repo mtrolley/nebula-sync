@@ -73,3 +73,52 @@ func loadDnsData() map[string]interface{} {
 
 	return data
 }
+
+func TestFilter_IncludeKeys(t *testing.T) {
+	data := map[string]interface{}{
+		"a": 1,
+		"b": map[string]interface{}{"c": 2, "d": 3},
+		"e": 4,
+	}
+
+	keys := []string{"a", "b.c", "e"}
+	result := includeKeys(data, keys)
+
+	assert.Equal(t, 1, result["a"])
+	assert.Equal(t, 2, result["b"].(map[string]interface{})["c"])
+	assert.Equal(t, nil, result["b"].(map[string]interface{})["d"])
+	assert.Equal(t, 4, result["e"])
+	assert.Len(t, result, 3)
+}
+
+func TestFilter_IncludeKeys_MissingKey(t *testing.T) {
+	data := map[string]interface{}{"a": 1}
+	keys := []string{"b"}
+	result := includeKeys(data, keys)
+
+	assert.Empty(t, result)
+}
+
+func TestFilter_ExcludeKeys(t *testing.T) {
+	data := map[string]interface{}{
+		"a": 1,
+		"b": map[string]interface{}{"c": 2, "d": 3},
+		"e": 4,
+	}
+
+	keys := []string{"a", "b.c"}
+	result := excludeKeys(data, keys)
+
+	assert.NotContains(t, result, "a")
+	assert.NotContains(t, result["b"].(map[string]interface{}), "c")
+	assert.Contains(t, result["b"].(map[string]interface{}), "d")
+	assert.Contains(t, result, "e")
+}
+
+func TestFilter_ExcludeKeys_NonExistentKey(t *testing.T) {
+	data := map[string]interface{}{"a": 1}
+	keys := []string{"b"}
+	result := excludeKeys(data, keys)
+
+	assert.Equal(t, data, result)
+}
