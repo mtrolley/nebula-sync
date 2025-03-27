@@ -14,6 +14,25 @@ type Config struct {
 	Sync     *Sync          `ignored:"true"`
 }
 
+type Sync struct {
+	FullSync        bool    `required:"true" envconfig:"FULL_SYNC"`
+	Cron            *string `envconfig:"CRON"`
+	RunGravity      bool    `default:"false" envconfig:"RUN_GRAVITY"`
+	GravitySettings *GravitySettings
+	ConfigSettings  *ConfigSettings `ignored:"true"`
+}
+
+type GravitySettings struct {
+	DHCPLeases        bool `default:"false" envconfig:"SYNC_GRAVITY_DHCP_LEASES"`
+	Group             bool `default:"false" envconfig:"SYNC_GRAVITY_GROUP"`
+	Adlist            bool `default:"false" envconfig:"SYNC_GRAVITY_AD_LIST"`
+	AdlistByGroup     bool `default:"false" envconfig:"SYNC_GRAVITY_AD_LIST_BY_GROUP"`
+	Domainlist        bool `default:"false" envconfig:"SYNC_GRAVITY_DOMAIN_LIST"`
+	DomainlistByGroup bool `default:"false" envconfig:"SYNC_GRAVITY_DOMAIN_LIST_BY_GROUP"`
+	Client            bool `default:"false" envconfig:"SYNC_GRAVITY_CLIENT"`
+	ClientByGroup     bool `default:"false" envconfig:"SYNC_GRAVITY_CLIENT_BY_GROUP"`
+}
+
 type ConfigSettings struct {
 	DNS       *ConfigSetting
 	DHCP      *ConfigSetting
@@ -53,50 +72,54 @@ type RawConfigSettings struct {
 }
 
 func (raw *RawConfigSettings) Validate() error {
-	mex := func(name string, include, exclude []string) error {
+	exclusive := func(name string, include, exclude []string) error {
 		if include != nil && exclude != nil {
 			return fmt.Errorf("%s: INCLUDE/EXCLUDE must be mutually exclusive", name)
 		}
 		return nil
 	}
 
-	if err := mex("dns", raw.DNSInclude, raw.DNSExclude); err != nil {
+	if err := exclusive("dns", raw.DNSInclude, raw.DNSExclude); err != nil {
 		return err
 	}
-	if err := mex("dhcp", raw.DHCPInclude, raw.DHCPExclude); err != nil {
+	if err := exclusive("dhcp", raw.DHCPInclude, raw.DHCPExclude); err != nil {
 		return err
 	}
-	if err := mex("ntp", raw.NTPInclude, raw.NTPExclude); err != nil {
+	if err := exclusive("ntp", raw.NTPInclude, raw.NTPExclude); err != nil {
 		return err
 	}
-	if err := mex("resolver", raw.ResolverInclude, raw.ResolverExclude); err != nil {
+	if err := exclusive("resolver", raw.ResolverInclude, raw.ResolverExclude); err != nil {
 		return err
 	}
-	if err := mex("database", raw.DatabaseInclude, raw.DatabaseExclude); err != nil {
+	if err := exclusive("database", raw.DatabaseInclude, raw.DatabaseExclude); err != nil {
 		return err
 	}
-	if err := mex("misc", raw.MiscInclude, raw.MiscExclude); err != nil {
+	if err := exclusive("misc", raw.MiscInclude, raw.MiscExclude); err != nil {
 		return err
 	}
-	if err := mex("debug", raw.DebugInclude, raw.DebugExclude); err != nil {
+	if err := exclusive("debug", raw.DebugInclude, raw.DebugExclude); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (raw *RawConfigSettings) Parse() *ConfigSettings {
+func (raw *RawConfigSettings) Parse() (*ConfigSettings, error) {
+	if err := raw.Validate(); err != nil {
+		return nil, err
+	}
+
 	return &ConfigSettings{
 		DNS:       NewConfigSetting(raw.DNS, raw.DNSInclude, raw.DNSExclude),
 		DHCP:      NewConfigSetting(raw.DHCP, raw.DHCPInclude, raw.DHCPExclude),
-		NTP:       NewConfigSetting(raw.NTP, raw.NTPExclude, raw.NTPExclude),
-		Resolver:  NewConfigSetting(raw.Resolver, raw.ResolverExclude, raw.ResolverExclude),
-		Database:  NewConfigSetting(raw.Database, raw.DatabaseExclude, raw.DatabaseExclude),
+		NTP:       NewConfigSetting(raw.NTP, raw.NTPInclude, raw.NTPExclude),
+		Resolver:  NewConfigSetting(raw.Resolver, raw.ResolverInclude, raw.ResolverExclude),
+		Database:  NewConfigSetting(raw.Database, raw.DatabaseInclude, raw.DatabaseExclude),
 		Webserver: NewConfigSetting(raw.Webserver, nil, nil),
 		Files:     NewConfigSetting(raw.Files, nil, nil),
-		Misc:      NewConfigSetting(raw.Misc, raw.MiscExclude, raw.MiscExclude),
-		Debug:     NewConfigSetting(raw.Debug, raw.DebugExclude, raw.DebugExclude),
-	}
+		Misc:      NewConfigSetting(raw.Misc, raw.MiscInclude, raw.MiscExclude),
+		Debug:     NewConfigSetting(raw.Debug, raw.DebugInclude, raw.DebugExclude),
+	}, nil
 }
 
 type ConfigSetting struct {
@@ -149,6 +172,20 @@ func (c *Config) Load() error {
 	return nil
 }
 
+func (c *Config) loadSync() error {
+	sync := Sync{}
+	if err := envconfig.Process("", &sync); err != nil {
+		return fmt.Errorf("sync env vars: %w", err)
+	}
+
+	if err := sync.loadConfigSettings(); err != nil {
+		return fmt.Errorf("load config settings: %w", err)
+	}
+
+	c.Sync = &sync
+	return nil
+}
+
 func (sync *Sync) loadConfigSettings() error {
 	raw := RawConfigSettings{}
 
@@ -156,11 +193,12 @@ func (sync *Sync) loadConfigSettings() error {
 		return fmt.Errorf("config settings env vars: %w", err)
 	}
 
-	if err := raw.Validate(); err != nil {
+	configSettings, err := raw.Parse()
+	if err != nil {
 		return err
 	}
 
-	sync.ConfigSettings = raw.Parse()
+	sync.ConfigSettings = configSettings
 	return nil
 }
 
